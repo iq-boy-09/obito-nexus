@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: obito-nexus
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: OWNER_USER_ID
+        value: "7828717505"
+      - key: OWNER_USERNAME
+        value: "f4did"
+      - key: SUPPORT_CHAT
+        value: "r3alhero"
+      - key: DB_FILE
+        value: "/var/data/obito_db.json"
+    disk:
+      name: obito-data
+      mountPath: /var/data
+      sizeGB: 1

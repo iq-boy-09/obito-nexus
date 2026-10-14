@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local runtime state; production state lives on Render's persistent disk.
+data/obito_db.json
+
+# Local tooling and logs
+.pytest_cache/
+*.log
