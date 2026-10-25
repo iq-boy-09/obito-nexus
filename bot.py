@@ -37,7 +37,7 @@ from telegram.request import HTTPXRequest
 # ──────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8792179797:AAHnM41OYkp7c9C-h_6jZr9Y7CxdS-FGwjY").strip()
 
 OWNER_USER_ID = int(os.getenv("OWNER_USER_ID", "7828717505"))   # your Telegram user ID
 OWNER_USERNAME = os.getenv("OWNER_USERNAME", "f4did").lstrip("@")
