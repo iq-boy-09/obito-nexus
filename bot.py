@@ -38,7 +38,7 @@ from telegram.ext import (
 from telegram.request import HTTPXRequest
 
 
-app = Flask(name)
+app = Flask(__name__)
 
 @app.route("/")
 def home():
