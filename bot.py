@@ -11,6 +11,9 @@ Optional env vars: OWNER_USER_ID, OWNER_USERNAME, SUPPORT_CHAT, DB_FILE
 Public commands: /start /help /single /bulk
 Admin commands stay hidden from the public list.
 """
+
+from flask import Flask 
+from threading import Thread
 import asyncio
 import html
 import json
