@@ -13,15 +13,18 @@ Admin commands stay hidden from the public list.
 """
    
 from flask import Flask, send_file, abort, request
-from threading import Thread
+from threading import BoundedSemaphore, Thread
 import asyncio
+import csv
 import html
+import io
 import json
 import logging
 import os
 import random
 import re
 import secrets
+import shutil
 import string
 import tempfile
 import time
@@ -29,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
@@ -37,11 +41,38 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
+load_dotenv()
+
 app = Flask(__name__)
+
+# Availability checks are network-bound, but each one still uses memory and a
+# thread. Keep a small shared gate so several people can scan at once without
+# allowing an unbounded bulk request to exhaust a one-core host.
+SCAN_SLOTS = max(3, min(5, int(os.getenv("SCAN_SLOTS", "4"))))
+SCAN_WAIT_SECONDS = max(5, int(os.getenv("SCAN_WAIT_SECONDS", "45")))
+SCAN_GATE = BoundedSemaphore(SCAN_SLOTS)
+
+
+def web_page():
+    return send_file(Path(__file__).with_name("obito_nexus.html"))
 
 @app.route("/")
 def home():
-    return "write whatever u want or create a web page❗️😼", 200
+    return web_page()
+
+
+@app.get("/api/check")
+def api_check():
+    """Live availability check used by the landing page."""
+    email = (request.args.get("email") or "").strip().lower()
+    if not re.fullmatch(r"[^\s@]+@(?:hi2\.in|telegmail\.com)", email):
+        return {"ok": False, "error": "Enter a valid hi2.in or telegmail.com address."}, 400
+    try:
+        result = check_with_capacity(email)
+    except ScanBusy:
+        return {"ok": False, "busy": True, "error": "The scan queue is busy. Please wait a moment and try again."}, 429
+    mark, label, note = VERDICT[result]
+    return {"ok": True, "email": email, "result": result, "mark": mark, "label": label, "note": note}
 
 @app.route("/health")
 def health():
@@ -65,7 +96,7 @@ def download_db():
     )
 
 def run():
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")), threaded=True)
 # ──────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────
@@ -257,28 +288,38 @@ def check_hi2_email(email):
         r = session.post("https://hi2.in/api/custom", headers=headers, data=data, timeout=15)
         body = r.text.lower()
 
-        if "already taken" in body or ("taken" in body and '"error"' not in body):
-            try:
-                j = r.json()
-                if isinstance(j, dict):
-                    if j.get("error") and "taken" in str(j).lower():
-                        return "taken"
-                    if j.get("available") is False:
-                        return "taken"
-                    if j.get("available") is True:
-                        return "not_taken"
-            except Exception:
-                pass
-            if "already taken" in body:
+        try:
+            j = r.json()
+            if isinstance(j, dict) and j.get("available") is False:
                 return "taken"
+            if isinstance(j, dict) and j.get("available") is True:
+                return "not_taken"
+        except Exception:
+            pass
+        if "already taken" in body or ("taken" in body and '"error"' not in body):
+            return "taken"
+        if re.search(r"\bavailable\b", body) and not re.search(r"not\s+available", body):
             return "not_taken"
-
-        if "available" in body:
-            return "not_taken"
-        return "not_taken"
+        # Never turn an unrecognised/partial response into a fake FREE result.
+        return "unknown"
     except Exception as e:
         log.debug("hi2 check error: %s", e)
         return "unknown"
+
+
+class ScanBusy(Exception):
+    """Raised when all bounded scan slots are occupied for too long."""
+
+
+def check_with_capacity(email):
+    """Run one check through the process-wide concurrency gate."""
+    acquired = SCAN_GATE.acquire(timeout=SCAN_WAIT_SECONDS)
+    if not acquired:
+        raise ScanBusy
+    try:
+        return check_hi2_email(email)
+    finally:
+        SCAN_GATE.release()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -295,7 +336,7 @@ async def _tick(fut, seconds=1.05):
 async def scan_single_animated(msg, email):
     """Animated single scan. Returns (result, elapsed_seconds, message)."""
     t0 = time.monotonic()
-    fut = asyncio.ensure_future(asyncio.to_thread(check_hi2_email, email))
+    fut = asyncio.ensure_future(asyncio.to_thread(check_with_capacity, email))
     target = None
     i = 0
     while not fut.done():
@@ -320,7 +361,11 @@ async def scan_single_animated(msg, email):
             pass
         i += 1
         await _tick(fut)
-    return fut.result(), time.monotonic() - t0, target
+    try:
+        result = fut.result()
+    except ScanBusy:
+        result = "busy"
+    return result, time.monotonic() - t0, target
 
 
 async def scan_bulk_animated(msg, emails, status_msg):
@@ -330,7 +375,7 @@ async def scan_bulk_animated(msg, emails, status_msg):
     lines = []
 
     for idx, email in enumerate(emails, 1):
-        fut = asyncio.ensure_future(asyncio.to_thread(check_hi2_email, email))
+        fut = asyncio.ensure_future(asyncio.to_thread(check_with_capacity, email))
         i = 0
         while not fut.done():
             done = idx - 1
@@ -351,9 +396,13 @@ async def scan_bulk_animated(msg, emails, status_msg):
             i += 1
             await _tick(fut)
 
-        result = fut.result()
+        try:
+            result = fut.result()
+        except ScanBusy:
+            result = "busy"
         mark, label, _ = VERDICT.get(result, VERDICT["unknown"])
-        lines.append(f"{idx:02d}  {mark} <code>{html.escape(email)}</code>  ‣ <b>{label}</b>")
+        suffix = " · queue busy" if result == "busy" else ""
+        lines.append(f"{idx:02d}  {mark} <code>{html.escape(email)}</code>  ‣ <b>{label}</b>{suffix}")
         await asyncio.sleep(0.2)
 
     return lines, time.monotonic() - t0
@@ -541,6 +590,13 @@ def credits_label(uid, u):
     return "♾️ UNLIMITED" if has_unlimited(uid, u) else f"⚡ {u.get('credits', 0)} credits"
 
 
+def refund_credits(uid, u, amount):
+    """Return reserved credits when no confirmed verdict was produced."""
+    if amount > 0 and not has_unlimited(uid, u):
+        u["credits"] = u.get("credits", 0) + amount
+        save_db()
+
+
 def who(u, uid=None):
     name = html.escape((u.get("name") or "User")[:32])
     uname = f" @{html.escape(u['username'])}" if u.get("username") else ""
@@ -566,6 +622,20 @@ async def send_rich(bot, chat_id, text):
 # ──────────────────────────────────────────────────────────────
 # KEYBOARDS / TEXTS
 # ──────────────────────────────────────────────────────────────
+def button(text, callback_data=None, *, url=None, style=None):
+    """Create a Telegram button with Bot API style compatibility.
+
+    PTB 21 accepts unknown Bot API fields through api_kwargs, while newer
+    Telegram clients render primary/success/danger backgrounds.
+    """
+    kwargs = {"callback_data": callback_data}
+    if url:
+        kwargs["url"] = url
+    if style:
+        kwargs["api_kwargs"] = {"style": style}
+    return InlineKeyboardButton(text, **kwargs)
+
+
 def menu_text(uid, u):
     role = (
         "👑 OWNER" if is_owner(uid)
@@ -584,7 +654,7 @@ def menu_text(uid, u):
         f"┃  💠 <b>PLAN</b>  ·  {role}\n"
         f"┃  ⚡ <b>POWER</b> ·  {power}\n"
         "┃\n"
-        "╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n"
+        "╰━━━━━━━━━━━━━━━━╯\n"
         "⟡ <i>Precision  •  Speed  •  Power</i>\n"
         "✦ ─── ✦ ─── ✦ ─── ✦ ─── ✦\n"
         "🚀 <b>Choose Your Path Below</b>\n"
@@ -594,17 +664,17 @@ def menu_text(uid, u):
 
 def main_keyboard(uid):
     rows = [
-        [InlineKeyboardButton("⚡ 𝑺𝒊𝒏𝒈𝒍𝒆", callback_data="single"),
-         InlineKeyboardButton("🚀 𝑩𝒖𝒍𝒌", callback_data="bulk")],
-        [InlineKeyboardButton("📊 𝑴𝒚 𝑺𝒕𝒂𝒕𝒔", callback_data="status"),
-         InlineKeyboardButton("🎁 𝑹𝒆𝒅𝒆𝒆𝒎", callback_data="redeem")],
-        [InlineKeyboardButton("🔗 𝑹𝒆𝒇𝒆𝒓 & 𝑬𝒂𝒓𝒏", callback_data="refer"),
-         InlineKeyboardButton("💎 𝑷𝒓𝒆𝒎𝒊𝒖𝒎", callback_data="premium")],
-        [InlineKeyboardButton("💬 𝑺𝒖𝒑𝒑𝒐𝒓𝒕", url=f"https://t.me/{SUPPORT_CHAT}"),
-         InlineKeyboardButton("👑 𝑶𝒘𝒏𝒆𝒓", url=f"https://t.me/{OWNER_USERNAME}")],
+        [button("⚡ 𝑺𝒊𝒏𝒈𝒍𝒆", "single", style="primary"),
+         button("🚀 𝑩𝒖𝒍𝒌", "bulk", style="primary")],
+        [button("📊 𝑴𝒚 𝑺𝒕𝒂𝒕𝒔", "status"),
+         button("🎁 𝑹𝒆𝒅𝒆𝒆𝒎", "redeem", style="success")],
+        [button("🔗 𝑹𝒆𝒇𝒆𝒓 & 𝑬𝒂𝒓𝒏", "refer"),
+         button("💎 𝑷𝒓𝒆𝒎𝒊𝒖𝒎", "premium", style="success")],
+        [button("💬 𝑺𝒖𝒑𝒑𝒐𝒓𝒕", url=f"https://t.me/{SUPPORT_CHAT}"),
+         button("👑 𝑶𝒘𝒏𝒆𝒓", url=f"https://t.me/{OWNER_USERNAME}")],
     ]
     if is_staff(uid):
-        rows.append([InlineKeyboardButton("🛡️ Admin panel", callback_data="panel")])
+        rows.append([button("🛡️ Admin panel", "panel", style="primary")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -635,8 +705,11 @@ def panel_keyboard():
          InlineKeyboardButton("♾️ Grant premium", callback_data="grant")],
         [InlineKeyboardButton("🚫 Revoke premium", callback_data="revoke"),
          InlineKeyboardButton("👤 User info", callback_data="userinfo")],
-        [InlineKeyboardButton("📢 Global broadcast", callback_data="broadcast")],
-        [InlineKeyboardButton("🏠 𝑴𝒂𝒊𝒏 𝑴𝒆𝒏𝒖", callback_data="home")],
+        [button("📢 Global broadcast", "broadcast", style="primary")],
+        [button("🟢 Export CSV", "export_csv", style="success"),
+         button("🔵 Export DB", "export_db", style="success")],
+        [button("🟠 Restore DB", "restore_db", style="danger")],
+        [button("🏠 𝑴𝒂𝒊𝒏 𝑴𝒆𝒏𝒖", "home")],
     ])
 
 
@@ -805,6 +878,30 @@ async def safe_edit(query, text, markup=None):
                 log.exception("Fallback message failed")
     except (NetworkError, TimedOut):
         log.warning("Network issue editing message")
+
+
+async def send_csv_export(bot, chat_id):
+    """Send a portable CSV containing users and check history."""
+    out = io.StringIO(newline="")
+    writer = csv.writer(out)
+    writer.writerow(["record_type", "user_id", "name", "username", "email", "result", "mode", "credits", "premium", "timestamp"])
+    for uid, user in DB["users"].items():
+        writer.writerow(["user", uid, user.get("name", ""), user.get("username", ""), "", "", "", user.get("credits", 0), user.get("unlimited", False), user.get("joined", "")])
+    for row in DB["checks"]:
+        user = DB["users"].get(str(row.get("uid")), {})
+        writer.writerow(["check", row.get("uid", ""), user.get("name", row.get("name", "")), user.get("username", row.get("username", "")), row.get("email", ""), row.get("result", ""), row.get("mode", ""), "", "", row.get("ts", "")])
+    payload = io.BytesIO(out.getvalue().encode("utf-8-sig"))
+    payload.name = "obito_export.csv"
+    await bot.send_document(chat_id=chat_id, document=payload, caption="🟢 OBITO NEXUS CSV export")
+
+
+async def send_db_export(bot, chat_id):
+    if not DB_FILE.exists():
+        save_db()
+    with DB_FILE.open("rb") as source:
+        payload = io.BytesIO(source.read())
+    payload.name = "obito_db.db"
+    await bot.send_document(chat_id=chat_id, document=payload, caption="🔵 OBITO NEXUS database backup (JSON format)")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1002,6 +1099,74 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for c, d in list(DB["redeem_codes"].items())[-30:]
             )
         await safe_edit(q, text, panel_back())
+    elif data == "export_csv":
+        if not is_staff(uid):
+            await safe_edit(q, "⛔ Not authorized.", back_keyboard())
+            return
+        try:
+            await send_csv_export(context.bot, uid)
+            await q.answer("CSV sent", show_alert=False)
+        except Exception:
+            log.exception("CSV export failed")
+            await q.message.reply_text("❌ CSV export failed. Check the worker logs.")
+    elif data == "export_db":
+        if not is_staff(uid):
+            await safe_edit(q, "⛔ Not authorized.", back_keyboard())
+            return
+        try:
+            await send_db_export(context.bot, uid)
+            await q.answer("Database backup sent", show_alert=False)
+        except Exception:
+            log.exception("Database export failed")
+            await q.message.reply_text("❌ Database export failed. Check the worker logs.")
+    elif data == "restore_db":
+        if not is_owner(uid):
+            await safe_edit(q, "⛔ Owner only for restore.", panel_back())
+            return
+        context.user_data["action"] = "restore_db"
+        await safe_edit(q, "🟠 <b>RESTORE DATABASE</b>\n\nUpload the exported <code>.db</code> or JSON document now. A safety backup is created before replacement.", panel_back())
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Owner-only restore endpoint for a previously exported database."""
+    global DB
+    user = update.effective_user
+    msg = update.effective_message
+    if not user or not is_owner(user.id) or context.user_data.get("action") != "restore_db":
+        return
+    document = msg.document
+    if not document or (document.file_size and document.file_size > 10 * 1024 * 1024):
+        await msg.reply_text("❌ Backup is missing or larger than 10 MB.")
+        return
+    temp_path = DB_FILE.with_suffix(DB_FILE.suffix + ".restore.tmp")
+    try:
+        DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tg_file = await context.bot.get_file(document.file_id)
+        await tg_file.download_to_drive(custom_path=temp_path)
+        with temp_path.open("r", encoding="utf-8") as source:
+            restored = json.load(source)
+        if not isinstance(restored, dict) or not isinstance(restored.get("users"), dict) or not isinstance(restored.get("stats"), dict):
+            raise ValueError("not an OBITO database")
+        if DB_FILE.exists():
+            shutil.copy2(DB_FILE, DB_FILE.with_suffix(DB_FILE.suffix + ".before-restore"))
+        base = default_db()
+        for key, value in base.items():
+            restored.setdefault(key, value)
+        restored["settings"] = {**base["settings"], **restored.get("settings", {})}
+        restored["stats"] = {**base["stats"], **restored.get("stats", {})}
+        with DB_FILE.open("w", encoding="utf-8") as target:
+            json.dump(restored, target, indent=2, ensure_ascii=False)
+        DB = restored
+        await msg.reply_text("✅ Database restored. The previous file is saved as <code>obito_db.json.before-restore</code>.", parse_mode="HTML")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        log.exception("Database restore failed: %s", exc)
+        await msg.reply_text("❌ Restore failed: invalid or unreadable database backup.")
+    finally:
+        context.user_data.pop("action", None)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # ── CHECK FLOW ────────────────────────────────────────────────
@@ -1114,7 +1279,22 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── SINGLE ───────────────────────────────────────────
         if single_mode:
             email = valid[0]
-            result, elapsed, status_msg = await scan_single_animated(msg, email)
+            try:
+                result, elapsed, status_msg = await scan_single_animated(msg, email)
+            except Exception:
+                log.exception("Single scan crashed for user %s", uid)
+                refund_credits(uid, u, cost)
+                await msg.reply_text("⚠️ The scan stopped unexpectedly. No credit was deducted; please try again later.")
+                context.user_data.pop("action", None)
+                return
+            if result not in {"taken", "not_taken"}:
+                refund_credits(uid, u, cost)
+                message = ("⏳ Other users are using the scan slots right now. Please wait a little and try again later."
+                           if result == "busy" else
+                           "⚠️ The service did not return a confirmed verdict. No credit was deducted; please try again later.")
+                await msg.reply_text(message)
+                context.user_data.pop("action", None)
+                return
             log_check(uid, u, email, result, "single")
             report = single_report(email, result, elapsed, uid, u)
 
@@ -1139,11 +1319,27 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "┗━━━━━━━━━━━━━━━━━━━━━━━━━┛",
             parse_mode="HTML",
         )
-        lines, elapsed = await scan_bulk_animated(msg, valid, status_msg)
+        try:
+            lines, elapsed = await scan_bulk_animated(msg, valid, status_msg)
+        except Exception:
+            log.exception("Bulk scan crashed for user %s", uid)
+            refund_credits(uid, u, cost)
+            await msg.reply_text("⚠️ The bulk scan stopped unexpectedly. No credit was deducted; please wait and try again later.")
+            context.user_data.pop("action", None)
+            return
 
+        busy_count = 0
         for email, line in zip(valid, lines):
+            if "queue busy" in line.lower():
+                busy_count += 1
+                continue
             res = "taken" if "𝐓 𝐀 𝐊 𝐄 𝐍" in line else ("not_taken" if "𝐅 𝐑 𝐄 𝐄" in line else "unknown")
             log_check(uid, u, email, res, "bulk", save=False)
+        if busy_count and not has_unlimited(uid, u):
+            u["credits"] += busy_count
+        unknown_count = sum(1 for line in lines if "𝐔 𝐍 𝐊 𝐍 𝐎 𝐖 𝐍" in line and "queue busy" not in line.lower())
+        if unknown_count and not has_unlimited(uid, u):
+            u["credits"] += unknown_count
         save_db()
 
         chunks = bulk_report_chunks(lines, len(valid), elapsed)
@@ -1156,6 +1352,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if invalid:
             await msg.reply_text(skipped_report(invalid), parse_mode="HTML")
+        if any("UNKNOWN" in line and "busy" in line.lower() for line in lines):
+            await msg.reply_text("⏳ Some targets could not enter the scan queue because other users are being checked. Please wait and try those targets again later.")
         context.user_data.pop("action", None)
         return
 
@@ -1417,6 +1615,9 @@ def main():
     ◈ Waiting for incoming updates
     """)
 
+    # Keep the landing page and /health endpoint alive alongside polling.
+    Thread(target=run, daemon=True, name="web").start()
+
     normal_request = HTTPXRequest(
         connection_pool_size=16, connect_timeout=30, read_timeout=40,
         write_timeout=30, pool_timeout=30,
@@ -1447,6 +1648,7 @@ def main():
     app.add_handler(CommandHandler("setqr", setqr_cmd))
 
     app.add_handler(CallbackQueryHandler(on_button))
+    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     log.info("Starting long-polling worker")

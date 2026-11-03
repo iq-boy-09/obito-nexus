@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080808">
+<meta name="description" content="OBITO NEXUS — F4 Group email utility.">
+<title>OBITO NEXUS / F4 GROUP</title>
+<style>
+:root{
+  --bg:#080808;--fg:#f2f0eb;--muted:#85837e;--line:#343430;
+  --acid:#c9ff38;--purple:#9a7bff;--red:#ff5b5b;--mono:"Courier New",monospace;
+  --sans:Arial,Helvetica,sans-serif
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);min-height:100vh}
+body:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.12;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,black,transparent 90%)}
+a{color:inherit}
+.shell{width:min(1220px,calc(100% - 48px));margin:auto;position:relative;z-index:1}
+header{height:76px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:13px;text-decoration:none}
+.brand-mark{width:35px;height:35px;display:grid;place-items:center;border:1px solid var(--acid);color:var(--acid);font:20px var(--mono);transform:rotate(45deg)}
+.brand-mark span{transform:rotate(-45deg)}
+.brand-name{font-weight:900;letter-spacing:.16em;font-size:13px}
+.brand-sub{font:9px var(--mono);letter-spacing:.16em;color:var(--muted);margin-top:5px}
+.header-right{display:flex;align-items:center;gap:20px;font:10px var(--mono);letter-spacing:.12em;color:var(--muted)}
+.online{color:var(--acid)}.online:before{content:"";display:inline-block;width:6px;height:6px;background:var(--acid);margin:0 8px 1px 0}
+.hero{padding:82px 0 54px;display:grid;grid-template-columns:1fr auto;align-items:end;border-bottom:1px solid var(--line);gap:24px}
+.overline,.section-label{font:10px var(--mono);letter-spacing:.2em;color:var(--acid);text-transform:uppercase}
+h1{font-size:clamp(58px,10vw,132px);line-height:.82;letter-spacing:-.095em;margin:24px 0 0;font-weight:900;text-transform:uppercase}
+h1 .outline{color:transparent;-webkit-text-stroke:1px #77756e}
+.hero-side{max-width:230px;padding-bottom:5px;color:var(--muted);font:11px/1.8 var(--mono);text-transform:uppercase}
+.hero-side b{color:var(--fg);font-weight:400}
+.main-grid{display:grid;grid-template-columns:minmax(0,1fr) 290px;border-bottom:1px solid var(--line)}
+.checker{padding:50px 42px 54px 0;border-right:1px solid var(--line)}
+.side{padding:50px 0 40px 30px}
+.section-label{color:var(--purple)}
+.check-title{font-size:26px;letter-spacing:-.045em;margin:13px 0 8px;font-weight:800}
+.sub{color:var(--muted);font-size:12px;line-height:1.7;margin:0 0 28px;max-width:620px}
+.input-label{display:block;font:10px var(--mono);letter-spacing:.16em;color:#aaa79f;margin-bottom:10px}
+.input-row{display:flex;border:1px solid #77756e;background:#111;min-height:66px;transition:border-color .2s}
+.input-row:focus-within{border-color:var(--acid);box-shadow:inset 0 0 0 1px var(--acid)}
+.input-prefix{display:flex;align-items:center;padding:0 17px;color:var(--acid);font:14px var(--mono);border-right:1px solid var(--line)}
+input{min-width:0;flex:1;background:transparent;border:0;outline:0;color:var(--fg);font:15px var(--mono);padding:0 18px}
+input::placeholder{color:#55534e}
+button{cursor:pointer;border:0;font:800 11px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.check-btn{background:var(--acid);color:#080808;padding:0 27px;min-width:150px;transition:background .2s}
+.check-btn:hover{background:#e0ff83}
+.check-btn:disabled{background:#4b4b42;color:#999;cursor:not-allowed}
+.hint{font:10px var(--mono);color:#77756e;margin-top:12px}
+.result{margin-top:22px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:18px 0;display:none}
+.result.show{display:block}
+.result-head{display:flex;align-items:center;gap:12px;font:11px var(--mono);letter-spacing:.12em}
+.result-mark{width:23px;height:23px;display:grid;place-items:center;border:1px solid var(--acid);color:var(--acid)}
+.result.bad .result-mark{border-color:var(--red);color:var(--red)}
+.result strong{font-weight:400}
+.result p{font:11px/1.7 var(--mono);color:var(--muted);margin:12px 0 0}
+.result-actions{display:flex;gap:10px;margin-top:15px;flex-wrap:wrap}
+.small-btn{padding:11px 13px;background:transparent;color:var(--fg);border:1px solid var(--line)}
+.small-btn:hover{border-color:var(--purple);color:#c8baff}
+.side-block{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:24px}
+.side-block:last-child{border:0;margin:0}
+.side-heading{font:10px var(--mono);letter-spacing:.16em;color:var(--muted);margin-bottom:15px}
+.quota{display:flex;align-items:baseline;gap:7px}
+.quota-number{font-size:56px;line-height:1;font-weight:900;letter-spacing:-.08em}
+.quota-total{font:12px var(--mono);color:var(--muted)}
+.quota-bars{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:17px 0 10px}
+.quota-bars i{height:5px;background:#373730}
+.quota-bars i.active{background:var(--acid)}
+.quota-caption{font:10px/1.7 var(--mono);color:var(--muted)}
+.side-cta{display:block;text-decoration:none;padding:15px 14px;background:var(--purple);color:#080808;font:800 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;margin-top:13px}
+.side-cta:hover{background:#b8a5ff}
+.side-cta span{float:right}
+.feature-line{display:flex;justify-content:space-between;gap:20px;padding:17px 0;border-bottom:1px solid var(--line);font:10px var(--mono);letter-spacing:.08em;color:var(--muted)}
+.feature-line b{font-weight:400;color:var(--fg);text-align:right}
+.bottom{display:flex;justify-content:space-between;gap:20px;padding:25px 0 32px;color:#77756e;font:9px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.bottom strong{color:#c4c0b7;font-weight:400}
+.bottom a{color:var(--acid);text-decoration:none}
+.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,15px);opacity:0;transition:.2s;background:var(--acid);color:#080808;padding:12px 16px;font:11px var(--mono);z-index:5;pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media(max-width:760px){
+ .shell{width:calc(100% - 30px)}.hero{grid-template-columns:1fr;padding:65px 0 35px}.hero-side{max-width:390px}
+ .main-grid{grid-template-columns:1fr}.checker{padding:38px 0;border-right:0;border-bottom:1px solid var(--line)}
+ .side{padding:30px 0}.header-right{gap:8px}.header-right .status-text{display:none}
+}
+@media(max-width:500px){
+ header{height:66px}.brand-name{font-size:11px}.brand-sub{font-size:8px}
+ h1{font-size:58px}.input-row{flex-wrap:wrap}.input-prefix{min-height:58px}.input-row input{min-height:58px}
+ .check-btn{width:100%;height:54px}.bottom{flex-direction:column;line-height:1.8}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+<header>
+  <a class="brand" href="#" aria-label="Obito Nexus home">
+    <span class="brand-mark"><span>◈</span></span>
+    <span><div class="brand-name">OBITO NEXUS</div><div class="brand-sub">F4 GROUP / SCAN DIVISION</div></span>
+  </a>
+  <div class="header-right"><span class="online">ONLINE</span><span class="status-text">NEXUS NODE 001 &nbsp; / &nbsp; V1.0</span></div>
+</header>
+
+<section class="hero">
+  <div>
+    <div class="overline">F4 GROUP PRESENTS &nbsp; / &nbsp; DIGITAL UTILITY</div>
+    <h1>CHECK.<br><span class="outline">CONFIRM.</span></h1>
+  </div>
+  <div class="hero-side"><b>OBITO NEXUS</b> is a precision-first email utility interface. Clean input. Clear feedback. No unnecessary noise.</div>
+</section>
+
+<section class="main-grid">
+  <main class="checker">
+    <div class="section-label">01 / EMAIL INSPECTOR</div>
+    <h2 class="check-title">Enter an email address.</h2>
+    <p class="sub">Run a live availability check against the OBITO scan core. The same bounded queue protects the one-core worker when several people check at once.</p>
+    <label class="input-label" for="emailInput">TARGET ADDRESS</label>
+    <div class="input-row">
+      <span class="input-prefix">✳</span>
+      <input id="emailInput" type="email" placeholder="name@hi2.in" autocomplete="email" spellcheck="false" maxlength="254">
+      <button class="check-btn" id="checkBtn">CHECK FORMAT ↗</button>
+    </div>
+    <div class="hint">SUPPORTED DOMAINS &nbsp; / &nbsp; hi2.in &nbsp; · &nbsp; telegmail.com</div>
+
+    <div class="result" id="result" aria-live="polite">
+      <div class="result-head"><span class="result-mark" id="resultMark">✓</span><strong id="resultTitle">FORMAT ACCEPTED</strong></div>
+      <p id="resultText"></p>
+      <div class="result-actions" id="resultActions" hidden>
+        <button class="small-btn" id="copyBtn">COPY ADDRESS</button>
+        <a class="small-btn" href="https://t.me/f4did" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">OPEN TELEGRAM ↗</a>
+      </div>
+    </div>
+  </main>
+
+  <aside class="side">
+    <div class="side-block">
+      <div class="side-heading">02 / DAILY FREE ALLOCATION</div>
+      <div class="quota"><span class="quota-number" id="remaining">5</span><span class="quota-total">/ 5 LEFT</span></div>
+      <div class="quota-bars" id="quotaBars"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="quota-caption" id="quotaCaption">Five live checks available in this browser today.</div>
+    </div>
+    <div class="side-block">
+      <div class="side-heading">03 / NEED MORE CAPACITY?</div>
+      <div style="font-size:21px;font-weight:900;letter-spacing:-.05em;line-height:1.1">GO BEYOND<br>THE LIMIT.</div>
+      <p class="quota-caption" style="margin-top:12px">Continue on Telegram for credits, bulk scans, referrals, and premium access.</p>
+      <a class="side-cta" href="https://t.me/f4did" target="_blank" rel="noopener">OPEN TELEGRAM <span>↗</span></a>
+    </div>
+    <div class="side-block">
+      <div class="side-heading">04 / SYSTEM NOTES</div>
+      <div class="feature-line"><span>DAILY RESET</span><b>LOCAL DAY</b></div>
+      <div class="feature-line"><span>INTERFACE</span><b>WEB / MOBILE</b></div>
+      <div class="feature-line"><span>FRAMEWORK</span><b>OBITO</b></div>
+    </div>
+  </aside>
+</section>
+
+<footer class="bottom">
+  <div>© <span id="year"></span> <strong>F4 GROUP</strong> / ALL RIGHTS RESERVED</div>
+  <div>POWERED BY <strong>OBITO FRAMEWORK</strong> &nbsp; / &nbsp; DEV <a href="https://t.me/f4did" target="_blank" rel="noopener">@F4DID</a></div>
+</footer>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+(() => {
+  "use strict";
+  const LIMIT = 5;
+  const STORAGE_KEY = "obito_nexus_format_quota_v1";
+  const supported = new Set(["hi2.in", "telegmail.com"]);
+  const $ = id => document.getElementById(id);
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  };
+  function readUsage() {
+    try {
+      const v = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      return v.day === today() ? Math.min(LIMIT, Math.max(0, Number(v.used) || 0)) : 0;
+    } catch { return 0; }
+  }
+  function writeUsage(n) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({day:today(), used:n})); } catch {}
+  }
+  function updateQuota() {
+    const left = LIMIT - readUsage();
+    $("remaining").textContent = left;
+    [...$("quotaBars").children].forEach((bar, i) => bar.classList.toggle("active", i < left));
+    $("quotaCaption").textContent = left
+      ? `${left} of 5 live checks remain in this browser today.`
+      : "Daily browser allowance used. Continue with the Telegram bot.";
+    $("checkBtn").disabled = left === 0;
+    $("checkBtn").textContent = left === 0 ? "DAILY LIMIT REACHED" : "CHECK FORMAT ↗";
+  }
+  function showToast(message) {
+    const t = $("toast"); t.textContent = message; t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 1800);
+  }
+  function display(ok, title, message, email) {
+    const box = $("result");
+    box.classList.add("show"); box.classList.toggle("bad", !ok);
+    $("resultMark").textContent = ok ? "✓" : "×";
+    $("resultTitle").textContent = title;
+    $("resultText").textContent = message;
+    $("resultActions").hidden = !ok;
+    $("copyBtn").onclick = async () => {
+      try { await navigator.clipboard.writeText(email); showToast("ADDRESS COPIED"); }
+      catch { showToast("COPY NOT AVAILABLE IN THIS BROWSER"); }
+    };
+  }
+  async function inspect() {
+    const email = $("emailInput").value.trim();
+    if (readUsage() >= LIMIT) { updateQuota(); return; }
+    if (!email) { display(false, "INPUT REQUIRED", "Enter an email address to inspect its format.", ""); return; }
+
+    const at = email.lastIndexOf("@");
+    const domain = at > 0 ? email.slice(at + 1).toLowerCase() : "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !supported.has(domain)) {
+      display(false, "INVALID OR UNSUPPORTED", "Enter a valid hi2.in or telegmail.com address.", email);
+      writeUsage(readUsage() + 1); updateQuota(); return;
+    }
+    const original = $("checkBtn").textContent;
+    $("checkBtn").disabled = true; $("checkBtn").textContent = "SCANNING…";
+    let data;
+    try {
+      const response = await fetch(`/api/check?email=${encodeURIComponent(email)}`);
+      data = await response.json();
+    } catch {
+      data = {ok:false, error:"The scan service is temporarily unavailable. Try again later."};
+    }
+    writeUsage(readUsage() + 1);
+    display(Boolean(data.ok && data.result === "not_taken"), data.ok ? `${data.mark} ${data.label}` : "SCAN UNAVAILABLE", data.ok ? data.note : data.error, email);
+    $("checkBtn").disabled = false; $("checkBtn").textContent = original;
+    updateQuota();
+  }
+  $("checkBtn").addEventListener("click", inspect);
+  $("emailInput").addEventListener("keydown", e => { if (e.key === "Enter") inspect(); });
+  $("year").textContent = new Date().getFullYear();
+  updateQuota();
+})();
+</script>
+</body>
+</html>

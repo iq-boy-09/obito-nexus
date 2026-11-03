@@ -15,6 +15,12 @@ services:
         value: "r3alhero"
       - key: DB_FILE
         value: "/var/data/obito_db.json"
+      - key: SCAN_SLOTS
+        value: "4"
+      - key: SCAN_WAIT_SECONDS
+        value: "45"
+      - key: DB_DOWNLOAD_TOKEN
+        generateValue: true
     disk:
       name: obito-data
       mountPath: /var/data

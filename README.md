@@ -24,7 +24,7 @@
 
 ## ✦ What it does
 
-OBITO NEXUS checks supported email addresses for registration availability and wraps the workflow in a Telegram UI with credits, referrals, redeem codes, premium access, and owner/admin controls.
+OBITO NEXUS checks supported email addresses for registration availability and wraps the workflow in a Telegram UI with credits, referrals, redeem codes, premium access, and owner/admin controls. The Flask landing page at `/` now performs live checks through the same bounded scan queue.
 
 <div align="center">
 
@@ -38,11 +38,13 @@ OBITO NEXUS checks supported email addresses for registration availability and w
 
 - `/start` and `/help` — launch the main menu
 - `/single` — check one address
-- `/bulk` — check up to 20 addresses
+- `/bulk` — check multiple addresses
 - Supported domains: `hi2.in` and `telegmail.com`
 - Credits, referral bonuses, redeem codes, and premium/unlimited access
 - Owner/admin actions for credits, codes, user lookup, QR payments, and broadcasts
 - JSON persistence locally or on a Render persistent disk
+- Four shared scan slots by default (configurable from 3–5) so multiple users can scan in parallel on a one-core host
+- Admin CSV export, database export, and owner-only restore with an automatic pre-restore backup
 - Telegram long polling — no public web server or webhook is required
 
 ## ◈ Quick start
@@ -70,9 +72,9 @@ $env:OWNER_USER_ID = "123456789"
 python bot.py
 ```
 
-## ◉ Deploy on Render
+## ◉ Deploy on Adehost / Render
 
-The included [`render.yaml`](render.yaml) defines a Render **Background Worker** with a 1 GB persistent disk.
+The included [`render.yaml`](render.yaml) defines a Render **Background Worker** with a 1 GB persistent disk. On Adehost, use the same project directory and set the start command to `python bot.py`; the process starts both Telegram polling and the Flask web server.
 
 1. Push this repository to GitHub.
 2. In Render, choose **New → Blueprint**.
@@ -86,7 +88,7 @@ The included [`render.yaml`](render.yaml) defines a Render **Background Worker**
    OBITO NEXUS online as @your_bot_username
    ```
 
-The production database is stored at `/var/data/obito_db.json` through `DB_FILE`. A persistent disk may require a paid Render service plan; without it, the worker can run but local database state may be lost after a restart.
+The production database is stored at `/var/data/obito_db.json` through `DB_FILE`. A persistent disk may require a paid Render service plan; without it, the worker can run but local database state may be lost after a restart. For Adehost, set `DB_FILE` to a persistent path provided by the host, expose its `PORT`, and configure the variables below.
 
 ## ◇ Configuration
 
@@ -98,6 +100,9 @@ The production database is stored at `/var/data/obito_db.json` through `DB_FILE`
 | `SUPPORT_CHAT` | No | Support username, with or without `@` |
 | `DB_FILE` | No | JSON database path; defaults to `data/obito_db.json` |
 | `LOG_LEVEL` | No | Logging level such as `INFO` or `DEBUG` |
+| `DB_DOWNLOAD_TOKEN` | No | Secret token for the `/download-db?token=...` route |
+| `SCAN_SLOTS` | No | Shared concurrent scan slots; keep between 3 and 5 on one CPU core |
+| `SCAN_WAIT_SECONDS` | No | How long a scan waits for a slot before returning a busy message |
 
 ## 🛡️ Owner & admin controls
 
@@ -109,7 +114,7 @@ These commands remain hidden from Telegram's public command menu:
 /setqr                         Reply to an image to save the premium QR
 ```
 
-The inline admin panel also supports redeem-code generation, user lookup, unlimited access, broadcasts, and credit management.
+The inline admin panel also supports redeem-code generation, user lookup, unlimited access, broadcasts, credit management, CSV export, database export, and owner-only restore. Main and admin actions send Telegram button styles (`primary`, `success`, and `danger`) through the Bot API compatibility field.
 
 ## 🔐 Security & responsible use
 
