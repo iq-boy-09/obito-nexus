@@ -12,7 +12,7 @@ Public commands: /start /help /single /bulk
 Admin commands stay hidden from the public list.
 """
 
-from flask import Flask 
+from flask import Flask, send_file, abort, request
 from threading import Thread
 import asyncio
 import html
@@ -37,7 +37,6 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
-
 app = Flask(__name__)
 
 @app.route("/")
@@ -48,14 +47,25 @@ def home():
 def health():
     return "OK", 200
 
+# DATABASE DOWNLOAD
+@app.route("/download-db")
+def download_db():
+    token = os.getenv("DB_DOWNLOAD_TOKEN", "")
+
+    if not token or request.args.get("token") != token:
+        abort(403)
+
+    if not DB_FILE.exists():
+        abort(404, "Database file not found")
+
+    return send_file(
+        DB_FILE,
+        as_attachment=True,
+        download_name="obito_db.json"
+    )
+
 def run():
     app.run(host="0.0.0.0", port=10000)
-
-def keep_alive():
-    server = Thread(target=run, daemon=True)
-    server.start()
-keep_alive()
-
 # ──────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────
